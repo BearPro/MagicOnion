@@ -4,6 +4,7 @@ using Microsoft.CodeAnalysis;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 
@@ -26,34 +27,51 @@ namespace MagicOnion.CodeAnalysis
 
         public ReferenceSymbols(Compilation compilation, Action<string> logger)
         {
-            Void = compilation.GetTypeByMetadataName("System.Void");
-            if (Void == null)
+            INamedTypeSymbol GetTypeSymbolOrThrow(string name, SpecialType type = SpecialType.None, bool required = true)
             {
-                logger("failed to get metadata of System.Void.");
-            }
+                var symbol = compilation.GetTypeByMetadataName(name)
+                             ?? GetWellKnownType(name)
+                             ?? GetSpecialType(type);
 
-            TaskOfT = compilation.GetTypeByMetadataName("System.Threading.Tasks.Task`1");
-            if (TaskOfT == null)
-            {
-                logger("failed to get metadata of System.Threading.Tasks.Task`1.");
-            }
-
-            Task = compilation.GetTypeByMetadataName("System.Threading.Tasks.Task");
-            if (Task == null)
-            {
-                logger("failed to get metadata of System.Threading.Tasks.Task.");
-            }
-
-            INamedTypeSymbol GetTypeSymbolOrThrow(string name)
-            {
-                var symbol = compilation.GetTypeByMetadataName(name);
                 if (symbol == null)
                 {
-                    throw new InvalidOperationException("failed to get metadata of " + name);
+                    var message = "failed to get metadata of " + name;
+                    if (required) throw new InvalidOperationException(message);
+                    logger(message);
                 }
+
                 return symbol;
             }
 
+            var getTypeFromMetadataName = typeof(Compilation).Assembly
+                .GetType("Microsoft.CodeAnalysis.WellKnownTypes")
+                .GetMethod("GetTypeFromMetadataName", BindingFlags.Static | BindingFlags.Public);
+
+            var getWellKnownType = compilation.GetType()
+                .GetMethod("CommonGetWellKnownType", BindingFlags.Instance | BindingFlags.NonPublic);
+
+            INamedTypeSymbol GetWellKnownType(string name)
+            {
+                var wellKnownType = getTypeFromMetadataName?.Invoke(null, new object[] { name });
+                var instance = wellKnownType != null && (int)wellKnownType > 0
+                    ? getWellKnownType?.Invoke(compilation, new[] { wellKnownType })
+                    : null;
+
+                // Roslyn returns PENamedTypeSymbol which is not convertable to INamedTypeSymbol
+                // https://github.com/dotnet/roslyn/blob/main/src/Compilers/CSharp/Portable/Symbols/Metadata/PE/PENamedTypeSymbol.cs#L2408
+                return instance as INamedTypeSymbol;
+            }
+
+            INamedTypeSymbol GetSpecialType(SpecialType type)
+            {
+                return type != SpecialType.None
+                    ? compilation.GetSpecialType(type)
+                    : null;
+            }
+
+            Void = GetTypeSymbolOrThrow("System.Void", SpecialType.System_Void);
+            Task = GetTypeSymbolOrThrow("System.Threading.Tasks.Task", required: false);
+            TaskOfT = GetTypeSymbolOrThrow("System.Threading.Tasks.Task`1", required: false);
             UnaryResult = GetTypeSymbolOrThrow("MagicOnion.UnaryResult`1");
             ClientStreamingResult = GetTypeSymbolOrThrow("MagicOnion.ClientStreamingResult`2");
             DuplexStreamingResult = GetTypeSymbolOrThrow("MagicOnion.DuplexStreamingResult`2");
@@ -122,7 +140,7 @@ namespace MagicOnion.CodeAnalysis
                     FullName = x.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                     Namespace = x.ContainingNamespace.IsGlobalNamespace ? null : x.ContainingNamespace.ToDisplayString(),
                     IsServiceDefinition = true,
-                    IsIfDebug = x.GetAttributes().FindAttributeShortName("GenerateDefineDebugAttribute") != null,
+                    IfDirectiveCondition = x.GetDefinedGenerateIfCondition(),
                     Methods = x.GetMembers()
                         .OfType<IMethodSymbol>()
                         .Select(CreateMethodDefinition)
@@ -142,7 +160,7 @@ namespace MagicOnion.CodeAnalysis
                         Name = x.ToDisplayString(shortTypeNameFormat),
                         FullName = x.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                         Namespace = x.ContainingNamespace.IsGlobalNamespace ? null : x.ContainingNamespace.ToDisplayString(),
-                        IsIfDebug = x.GetAttributes().FindAttributeShortName("GenerateDefineDebugAttribute") != null,
+                        IfDirectiveCondition = x.GetDefinedGenerateIfCondition(),
                         Methods = x.GetMembers()
                             .OfType<IMethodSymbol>()
                             .Select(CreateMethodDefinition)
@@ -156,7 +174,7 @@ namespace MagicOnion.CodeAnalysis
                         Name = receiver.ToDisplayString(shortTypeNameFormat),
                         FullName = receiver.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                         Namespace = receiver.ContainingNamespace.IsGlobalNamespace ? null : receiver.ContainingNamespace.ToDisplayString(),
-                        IsIfDebug = receiver.GetAttributes().FindAttributeShortName("GenerateDefineDebugAttribute") != null,
+                        IfDirectiveCondition = receiver.GetDefinedGenerateIfCondition(),
                         Methods = receiver.GetMembers()
                             .OfType<IMethodSymbol>()
                             .Select(CreateMethodDefinition)
@@ -207,7 +225,7 @@ namespace MagicOnion.CodeAnalysis
                 ResponseType = responseType,
                 UnwrappedOriginalResposneTypeSymbol = unwrappedOriginalResponseType,
                 OriginalResponseTypeSymbol = y.ReturnType,
-                IsIfDebug = y.GetAttributes().FindAttributeShortName("GenerateDefineDebugAttribute") != null,
+                IfDirectiveCondition = y.GetDefinedGenerateIfCondition(),
                 HubId = id,
                 Parameters = y.Parameters.Select(p =>
                 {

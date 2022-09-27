@@ -4,9 +4,9 @@ on:
   push:
     branches:
       - "master"
-      - "hotfix/WriteEmptyResponse"
     tags:
       - "!*" # not a tag push
+  workflow_dispatch:
 
 env:
   DOTNET_CLI_TELEMETRY_OPTOUT: 1
@@ -34,7 +34,6 @@ jobs:
       - run: dotnet build ./src/MagicOnion.Server/ -c Release -p:VersionSuffix=${MAGICONION_VERSION}
       - run: dotnet build ./src/MagicOnion.Server.HttpGateway/ -c Release -p:VersionSuffix=${MAGICONION_VERSION}
       - run: dotnet build ./src/MagicOnion.Server.Redis/ -c Release -p:VersionSuffix=${MAGICONION_VERSION}
-      - run: dotnet build ./src/MagicOnion.Server.Authentication/ -c Release -p:VersionSuffix=${MAGICONION_VERSION}
       #- run: dotnet build ./src/MagicOnion.Server.OpenTelemetry/ -c Release -p:VersionSuffix=${MAGICONION_VERSION}
       - run: dotnet build ./src/MagicOnion.MSBuild.Tasks/ -c Release -p:VersionSuffix=${MAGICONION_VERSION}
       - run: dotnet build ./src/MagicOnion.Generator/ -c Release -p:VersionSuffix=${MAGICONION_VERSION}
@@ -48,7 +47,6 @@ jobs:
       - run: dotnet pack ./src/MagicOnion.Server/MagicOnion.Server.csproj -c Release --include-symbols --include-source --no-build -p:VersionSuffix=${MAGICONION_VERSION} -o ./publish
       - run: dotnet pack ./src/MagicOnion.Server.HttpGateway/MagicOnion.Server.HttpGateway.csproj -c Release --include-symbols --include-source --no-build -p:VersionSuffix=${MAGICONION_VERSION} -o ./publish
       - run: dotnet pack ./src/MagicOnion.Server.Redis/MagicOnion.Server.Redis.csproj -c Release --include-symbols --include-source --no-build -p:VersionSuffix=${MAGICONION_VERSION} -o ./publish
-      - run: dotnet pack ./src/MagicOnion.Server.Authentication/MagicOnion.Server.Authentication.csproj -c Release --include-symbols --include-source --no-build -p:VersionSuffix=${MAGICONION_VERSION} -o ./publish
       #- run: dotnet pack ./src/MagicOnion.Server.OpenTelemetry/MagicOnion.Server.OpenTelemetry.csproj -c Release --include-symbols --include-source --no-build -p:VersionSuffix=${MAGICONION_VERSION} -o ./publish
       - run: dotnet pack ./src/MagicOnion.MSBuild.Tasks/MagicOnion.MSBuild.Tasks.csproj -c Release --include-symbols --include-source --no-build -p:VersionSuffix=${MAGICONION_VERSION} -o ./publish
       - run: dotnet pack ./src/MagicOnion.Generator/MagicOnion.Generator.csproj -c Release --include-symbols --include-source --no-build -p:VersionSuffix=${MAGICONION_VERSION} -o ./publish
@@ -96,6 +94,6 @@ jobs:
       # Upload to NuGet
       - run: echo "VSS_NUGET_EXTERNAL_FEED_ENDPOINTS=${FEED_ENDPOINTS}" >> $GITHUB_ENV
         env:
-          FEED_ENDPOINTS: ${{ secrets.VSS_NUGET_EXTERNAL_FEED_ENDPOINTS }}
+          FEED_ENDPOINTS: ${{ secrets.VSS_NUGET_EXTERNAL_FEED_ENDPOINTS_PUBLIC_CANARY }}
       - run: wget -qO- https://raw.githubusercontent.com/Microsoft/artifacts-credprovider/master/helpers/installcredprovider.sh | bash
-      - run: dotnet nuget push "./nuget/*.nupkg" --skip-duplicate -s https://pkgs.dev.azure.com/cysharp/MagicOnion/_packaging/Canary/nuget/v2 -k AzureDevOps
+      - run: dotnet nuget push "./nuget/*.nupkg" --skip-duplicate -s https://pkgs.dev.azure.com/cysharp/Public/_packaging/Canary-Build/nuget/v2 -k AzureDevOps
